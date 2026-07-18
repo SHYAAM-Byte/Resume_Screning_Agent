@@ -1,0 +1,15 @@
+# --- UI ---
+streamlit>=1.32.0
+
+# --- Data handling / results table (used in app.py) ---
+pandas>=2.0.0
+
+# --- Local LLM inference via Ollama (used in ai_engine.py) ---
+ollama>=0.1.7
+
+# --- Resume parsing: PDF (used in parser.py) ---
+pdfplumber>=0.10.0
+PyPDF2>=3.0.0
+
+# --- Resume parsing: DOCX (used in parser.py) ---
+python-docx>=1.1.0
