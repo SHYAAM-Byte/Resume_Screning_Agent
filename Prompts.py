@@ -1,28 +1,7 @@
-"""
-prompts.py
-----------
-Reusable prompt templates for the Resume Screening Agent's LLM calls.
 
-Scope of this file (and ONLY this file):
-    - Define the prompt templates used for:
-        1. Resume information extraction
-        2. Resume vs. Job Description comparison
-    - Both templates strictly instruct the LLM to return ONLY valid JSON,
-      matching a fixed, documented schema.
-
-This file contains NO API calls, NO HTTP/Ollama client code, and NO
-response parsing/validation. It only builds prompt strings — ai_engine.py
-is responsible for actually calling the LLM and handling its output.
-"""
 
 from __future__ import annotations
 
-
-# ---------------------------------------------------------------------------
-# Shared system prompt
-# ---------------------------------------------------------------------------
-# Sets the model's role/tone once; reused as the "system" message by
-# ai_engine.py for every call so behavior stays consistent across prompts.
 SYSTEM_PROMPT = (
     "You are a precise, detail-oriented AI assistant embedded in an "
     "automated resume screening pipeline. You always follow output-format "
@@ -30,10 +9,6 @@ SYSTEM_PROMPT = (
     "commentary outside the exact format requested."
 )
 
-
-# ---------------------------------------------------------------------------
-# Shared JSON-only output contract
-# ---------------------------------------------------------------------------
 _JSON_ONLY_INSTRUCTIONS = """
 IMPORTANT OUTPUT RULES:
 - Respond with ONLY a single valid JSON object. Nothing else.
@@ -47,12 +22,6 @@ IMPORTANT OUTPUT RULES:
 """.strip()
 
 
-# ---------------------------------------------------------------------------
-# Template 1: Resume information extraction
-# ---------------------------------------------------------------------------
-# Documented schema for extracted resume data. Exported so other modules
-# (e.g. screener.py) can validate/reference the expected keys without
-# duplicating them.
 RESUME_EXTRACTION_SCHEMA = """{
   "full_name": "string",
   "email": "string",
@@ -111,9 +80,6 @@ Return the extracted information as a JSON object with EXACTLY this schema
 """
 
 
-# ---------------------------------------------------------------------------
-# Template 2: Resume vs. Job Description comparison
-# ---------------------------------------------------------------------------
 COMPARISON_SCHEMA = """{
   "candidate_name": "string",
   "match_score": 0,
@@ -136,20 +102,6 @@ COMPARISON_REQUIRED_KEYS = [
 
 
 def build_comparison_prompt(resume_data: str, job_description: str) -> str:
-    """
-    Build a prompt instructing the LLM to compare a candidate's resume
-    against a job description and return a structured match assessment
-    as JSON matching COMPARISON_SCHEMA.
-
-    Args:
-        resume_data: Either raw resume text, or a JSON string of
-            previously extracted resume information (the output of
-            build_resume_extraction_prompt + ai_engine's extraction call).
-        job_description: Plain text of the job description.
-
-    Returns:
-        A complete prompt string ready to send to the LLM.
-    """
     return f"""You are an expert technical recruiter evaluating a candidate
 against a specific job opening.
 

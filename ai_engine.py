@@ -1,21 +1,3 @@
-"""
-ai_engine.py
-------------
-Low-level interface to the local Ollama LLM (Llama 3) for the Resume
-Screening Agent.
-
-Scope of this file (and ONLY this file):
-    - Connect to Ollama and send prompts to a configurable model
-    - Receive raw text responses
-    - Validate that responses are well-formed JSON
-    - Automatically retry when the model returns invalid/malformed JSON
-    - Return plain Python dicts/lists (never raw strings) to callers
-
-This file contains NO prompt text (see prompts.py) and NO business logic
-(scoring rules, thresholds, hiring decisions) — that belongs to screener.py.
-ai_engine.py is a generic "ask the LLM for JSON, get a dict back" layer that
-prompts.py and screener.py build on top of.
-"""
 
 from __future__ import annotations
 
@@ -35,21 +17,11 @@ logger = logging.getLogger(__name__)
 
 JSONResult = Union[Dict[str, Any], List[Any]]
 
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-# The model name is intentionally configurable (module default + per-call
-# override) rather than hardcoded, so the same engine works against
-# "llama3", "llama3:8b", "llama3:70b", or any other locally-pulled model.
 DEFAULT_MODEL = "llama3"
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_TEMPERATURE = 0.2  # Low temperature favors consistent, structured output
 
 
-# ---------------------------------------------------------------------------
-# Custom exceptions
-# ---------------------------------------------------------------------------
 class AIEngineError(Exception):
     """Base exception for all ai_engine failures."""
 
@@ -62,35 +34,12 @@ class InvalidLLMResponseError(AIEngineError):
     """Raised when the LLM fails to return valid JSON after all retries."""
 
 
-# ---------------------------------------------------------------------------
-# Core: low-level call to Ollama
-# ---------------------------------------------------------------------------
 def _call_ollama(
     prompt: str,
     system_prompt: Optional[str],
     model: str,
     temperature: float,
 ) -> str:
-    """
-    Send a single prompt to Ollama and return the raw text response.
-
-    Uses Ollama's native JSON output mode (`format="json"`) as a first
-    line of defense for well-formed output, on top of the JSON-only
-    instructions already baked into the prompt itself.
-
-    Args:
-        prompt: The user-role prompt content (built by prompts.py).
-        system_prompt: Optional system-role instruction.
-        model: Name of the Ollama model to use.
-        temperature: Sampling temperature.
-
-    Returns:
-        The raw text content of the model's reply.
-
-    Raises:
-        OllamaConnectionError: If the server is unreachable, the model is
-            not available, or the response has an unexpected shape.
-    """
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -123,10 +72,6 @@ def _call_ollama(
 
     return content
 
-
-# ---------------------------------------------------------------------------
-# Core: generic "ask for JSON, validate, retry" engine
-# ---------------------------------------------------------------------------
 def generate_json_response(
     prompt: str,
     system_prompt: Optional[str] = SYSTEM_PROMPT,
@@ -134,34 +79,6 @@ def generate_json_response(
     max_retries: int = DEFAULT_MAX_RETRIES,
     temperature: float = DEFAULT_TEMPERATURE,
 ) -> JSONResult:
-    """
-    Send `prompt` to the configured Ollama model and return a validated
-    Python object (dict or list) parsed from its JSON response.
-
-    If the model returns invalid/malformed JSON, the request is retried —
-    with an increasingly explicit reminder appended to the prompt — up to
-    `max_retries` times before raising InvalidLLMResponseError.
-
-    This function is intentionally generic: it has no knowledge of resumes,
-    job descriptions, or scoring. It only turns "a prompt asking for JSON"
-    into "a Python object", so it can be reused for any structured-output
-    prompt built by prompts.py.
-
-    Args:
-        prompt: The fully-built prompt to send (see prompts.py builders).
-        system_prompt: Optional system-role instruction. Defaults to the
-            shared SYSTEM_PROMPT from prompts.py.
-        model: Name of the Ollama model to use (configurable, not hardcoded).
-        max_retries: Number of attempts before raising InvalidLLMResponseError.
-        temperature: Sampling temperature passed to Ollama.
-
-    Returns:
-        A parsed Python dict (or list) representing the model's response.
-
-    Raises:
-        OllamaConnectionError: If Ollama cannot be reached at all.
-        InvalidLLMResponseError: If every attempt fails to yield valid JSON.
-    """
     last_raw_response = ""
     current_prompt = prompt
 
@@ -196,29 +113,11 @@ def generate_json_response(
     )
 
 
-# ---------------------------------------------------------------------------
-# Thin, named convenience wrappers (wiring only — no business logic)
-# ---------------------------------------------------------------------------
 def extract_resume_info(
     resume_text: str,
     model: str = DEFAULT_MODEL,
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> JSONResult:
-    """
-    Extract structured information from raw resume text using the LLM.
-
-    Thin wrapper combining `build_resume_extraction_prompt` (prompts.py)
-    with `generate_json_response` (this file). Contains no interpretation
-    of the result — that is screener.py's responsibility.
-
-    Args:
-        resume_text: Cleaned plain text of a candidate's resume.
-        model: Ollama model name to use.
-        max_retries: Number of retry attempts on invalid JSON.
-
-    Returns:
-        A dict of extracted resume fields (schema defined in prompts.py).
-    """
     prompt = build_resume_extraction_prompt(resume_text)
     return generate_json_response(prompt, model=model, max_retries=max_retries)
 
@@ -229,24 +128,188 @@ def compare_resume_to_job(
     model: str = DEFAULT_MODEL,
     max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> JSONResult:
-    """
-    Compare a candidate's resume/profile against a job description using the LLM.
-
-    Thin wrapper combining `build_comparison_prompt` (prompts.py) with
-    `generate_json_response` (this file). Contains no scoring rules or
-    decision-making of its own — the LLM produces the assessment, and
-    screener.py decides what to do with it.
-
-    Args:
-        resume_data: Raw resume text or a JSON string of previously
-            extracted resume information.
-        job_description: Plain text of the job description.
-        model: Ollama model name to use.
-        max_retries: Number of retry attempts on invalid JSON.
-
-    Returns:
-        A dict describing match score, strengths, gaps, and recommendation
-        (schema defined in prompts.py).
-    """
     prompt = build_comparison_prompt(resume_data, job_description)
     return generate_json_response(prompt, model=model, max_retries=max_retries)
+
+# from __future__ import annotations
+
+# import json
+# import logging
+# import os
+# from typing import Any, Dict, List, Optional, Union
+
+# from dotenv import load_dotenv
+# from openai import OpenAI
+
+# from Prompts import (
+#     SYSTEM_PROMPT,
+#     build_resume_extraction_prompt,
+#     build_comparison_prompt,
+# )
+# from Utils import safe_json_parse
+
+# load_dotenv()
+
+# logger = logging.getLogger(__name__)
+
+# JSONResult = Union[Dict[str, Any], List[Any]]
+
+# # --------------------------------------------------------------------
+# # Configuration
+# # --------------------------------------------------------------------
+
+# DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
+# DEFAULT_MAX_RETRIES = 3
+# DEFAULT_TEMPERATURE = 0.2
+
+# client = OpenAI(
+#     api_key=os.getenv("OLLAMA_API_KEY"),
+#     base_url=os.getenv("OLLAMA_BASE_URL"),
+# )
+
+# # --------------------------------------------------------------------
+# # Exceptions
+# # --------------------------------------------------------------------
+
+# class AIEngineError(Exception):
+#     pass
+
+
+# class OllamaConnectionError(AIEngineError):
+#     pass
+
+
+# class InvalidLLMResponseError(AIEngineError):
+#     pass
+
+
+# # --------------------------------------------------------------------
+# # Internal Call
+# # --------------------------------------------------------------------
+
+# def _call_model(
+#     prompt: str,
+#     system_prompt: Optional[str],
+#     model: str,
+#     temperature: float,
+# ) -> str:
+
+#     messages = []
+
+#     if system_prompt:
+#         messages.append(
+#             {
+#                 "role": "system",
+#                 "content": system_prompt,
+#             }
+#         )
+
+#     messages.append(
+#         {
+#             "role": "user",
+#             "content": prompt,
+#         }
+#     )
+
+#     try:
+
+#         response = client.chat.completions.create(
+#             model=model,
+#             messages=messages,
+#             temperature=temperature,
+#             response_format={
+#                 "type": "json_object"
+#             },
+#         )
+
+#         return response.choices[0].message.content
+
+#     except Exception as exc:
+#         raise OllamaConnectionError(str(exc))
+
+
+# # --------------------------------------------------------------------
+# # Generic JSON Engine
+# # --------------------------------------------------------------------
+
+# def generate_json_response(
+#     prompt: str,
+#     system_prompt: Optional[str] = SYSTEM_PROMPT,
+#     model: str = DEFAULT_MODEL,
+#     max_retries: int = DEFAULT_MAX_RETRIES,
+#     temperature: float = DEFAULT_TEMPERATURE,
+# ) -> JSONResult:
+
+#     current_prompt = prompt
+#     last_response = ""
+
+#     for attempt in range(max_retries):
+
+#         last_response = _call_model(
+#             current_prompt,
+#             system_prompt,
+#             model,
+#             temperature,
+#         )
+
+#         parsed = safe_json_parse(last_response)
+
+#         if parsed is not None:
+#             return parsed
+
+#         logger.warning(
+#             "Invalid JSON attempt %d/%d",
+#             attempt + 1,
+#             max_retries,
+#         )
+
+#         current_prompt = (
+#             prompt
+#             + "\n\n"
+#             + "IMPORTANT:\n"
+#             + "Return ONLY valid JSON."
+#         )
+
+#     raise InvalidLLMResponseError(last_response)
+
+
+# # --------------------------------------------------------------------
+# # Resume Extraction
+# # --------------------------------------------------------------------
+
+# def extract_resume_info(
+#     resume_text: str,
+#     model: str = DEFAULT_MODEL,
+#     max_retries: int = DEFAULT_MAX_RETRIES,
+# ):
+
+#     prompt = build_resume_extraction_prompt(resume_text)
+
+#     return generate_json_response(
+#         prompt,
+#         model=model,
+#         max_retries=max_retries,
+#     )
+
+
+# # --------------------------------------------------------------------
+# # Resume Comparison
+# # --------------------------------------------------------------------
+
+# def compare_resume_to_job(
+#     resume_data: str,
+#     job_description: str,
+#     model: str = DEFAULT_MODEL,
+#     max_retries: int = DEFAULT_MAX_RETRIES,
+# ):
+
+#     prompt = build_comparison_prompt(
+#         resume_data,
+#         job_description,
+#     )
+
+#     return generate_json_response(
+#         prompt,
+#         model=model,
+#         max_retries=max_retries,
+#     )
