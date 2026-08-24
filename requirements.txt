@@ -1,0 +1,31 @@
+# --- UI ---
+streamlit>=1.37.0          # >=1.37 required for the built-in st.audio_input recorder
+
+# --- LLM (local Llama 3 via Ollama) ---
+ollama>=0.3.0
+requests>=2.31.0
+
+# --- Speech-to-text ---
+openai-whisper>=20231117
+torch>=2.2.0
+numpy>=1.26.0
+
+# --- Text-to-speech (choose one; both listed since spec says Piper OR Coqui) ---
+piper-tts>=1.2.0
+# TTS>=0.22.0              # Coqui TTS — uncomment instead of piper-tts if speech.py uses Coqui
+
+# --- Resume parsing (PDF/DOCX) ---
+pypdf>=4.2.0
+python-docx>=1.1.0
+
+# --- Audio handling / format conversion ---
+pydub>=0.25.1
+soundfile>=0.12.1
+
+# --- Note ---
+# sqlite3 ships with the Python standard library — no pip package needed.
+# ffmpeg is a SYSTEM dependency required by openai-whisper and pydub.
+# Install it separately, e.g.:
+#   Ubuntu/Debian: sudo apt install ffmpeg
+#   macOS:         brew install ffmpeg
+#   Windows:       https://ffmpeg.org/download.html
