@@ -1,0 +1,174 @@
+"""
+Pedestrian Detection with YOLO26m + OpenCV
+==========================================
+
+What this script does:
+  1. Opens a recorded video file.
+  2. Detects ONLY people (the COCO "person" class) with YOLO26m.
+  3. Draws a vehicle-path / danger zone in the lower-middle of the video.
+  4. Gives every pedestrian a risk level (Green / Yellow / Red)
+     based on where their feet are relative to that zone.
+  5. Shows everything in a floating OpenCV window. Press Q to quit.
+"""
+
+import cv2
+import numpy as np
+from ultralytics import YOLO
+
+
+VIDEO_PATH = r"C:\Users\SHYAAM\Downloads\JAAD_clips\JAAD_clips\video_0001.mp4"
+
+MODEL_PATH = "yolo26m.pt"      # Downloaded automatically on first run if missing
+CONFIDENCE_THRESHOLD = 0.40    # Ignore detections below 40% confidence
+PERSON_CLASS_ID = 0            # In the COCO dataset, class 0 = "person"
+FRAME_WIDTH = 1280             # Every frame is resized to this width
+WINDOW_NAME = "Ped Detectin  (press Q to quit)"
+
+
+CRITICAL_ZONE = [(0.40, 0.55), (0.60, 0.55), (0.75, 1.00), (0.25, 1.00)]
+WARNING_ZONE = [(0.30, 0.55), (0.70, 0.55), (0.90, 1.00), (0.10, 1.00)]
+
+GREEN = (0, 200, 0)
+YELLOW = (0, 220, 255)
+RED = (0, 0, 255)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+LOW, MEDIUM, HIGH = 0, 1, 2
+RISK_NAMES = {LOW: "LOW", MEDIUM: "MEDIOM", HIGH: "HIGH"}
+RISK_COLORS = {LOW: GREEN, MEDIUM: YELLOW, HIGH: RED}
+
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+def make_polygon(points, width, height):
+    pixel_points = [(int(x * width), int(y * height)) for x, y in points]
+    return np.array(pixel_points, dtype=np.int32)
+
+
+def is_inside(polygon, point):
+    # pointPolygonTest returns > 0 inside, 0 on the edge, < 0 outside.
+    return cv2.pointPolygonTest(polygon, (float(point[0]), float(point[1])), False) >= 0
+
+
+def get_risk_level(foot_point, critical_polygon, warning_polygon):
+    if is_inside(critical_polygon, foot_point):
+        return HIGH
+    if is_inside(warning_polygon, foot_point):
+        return MEDIUM
+    return LOW
+
+def draw_zones(frame, critical_polygon, warning_polygon):
+    # Paint the zones on a copy, then blend the copy with the original
+    # so that the video is still visible through the colors.
+    overlay = frame.copy()
+    cv2.fillPoly(overlay, [warning_polygon], YELLOW)
+    cv2.fillPoly(overlay, [critical_polygon], RED)
+    cv2.addWeighted(overlay, 0.25, frame, 0.75, 0, frame)
+    cv2.polylines(frame, [warning_polygon], True, YELLOW, 2)
+    cv2.polylines(frame, [critical_polygon], True, RED, 2)
+    h, w = frame.shape[:2]
+    cv2.putText(frame, "WARNING ZONE", (int(w * 0.10) + 10, h - 15), FONT, 0.55, YELLOW, 2)
+    cv2.putText(frame, "CRITICAL PATH", (int(w * 0.50) - 70, h - 15), FONT, 0.55, RED, 2)
+
+
+def draw_pedestrian(frame, box, confidence, risk):
+    x1, y1, x2, y2 = box
+    color = RISK_COLORS[risk]
+
+    # Bounding box
+    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+    foot_point = ((x1 + x2) // 2, y2)
+    cv2.circle(frame, foot_point, 5, color, -1)
+    label = f"Person {confidence:.2f} - {RISK_NAMES[risk]}"
+    (text_w, text_h), _ = cv2.getTextSize(label, FONT, 0.6, 2)
+    label_top = max(y1 - text_h - 10, 0)  # keep the label inside the frame
+    cv2.rectangle(frame, (x1, label_top), (x1 + text_w + 8, label_top + text_h + 10), color, -1)
+    cv2.putText(frame, label, (x1 + 4, label_top + text_h + 3), FONT, 0.6, BLACK, 2)
+
+
+def draw_traffic_light(frame, overall_risk):
+    w = frame.shape[1]
+    box_w, box_h = 80, 220
+    x0, y0 = w - box_w - 20, 20
+
+    cv2.rectangle(frame, (x0, y0), (x0 + box_w, y0 + box_h), (30, 30, 30), -1)
+    cv2.rectangle(frame, (x0, y0), (x0 + box_w, y0 + box_h), WHITE, 2)
+
+    lights = [
+        (HIGH, RED, (0, 0, 80)),
+        (MEDIUM, YELLOW, (0, 70, 80)),
+        (LOW, GREEN, (0, 70, 0)),
+    ]
+
+    center_x = x0 + box_w // 2
+    for i, (level, bright_color, dim_color) in enumerate(lights):
+        center_y = y0 + 40 + i * 70
+        if level == overall_risk:
+            cv2.circle(frame, (center_x, center_y), 28, bright_color, -1, cv2.LINE_AA)
+            cv2.circle(frame, (center_x, center_y), 28, WHITE, 2, cv2.LINE_AA)
+        else:
+            cv2.circle(frame, (center_x, center_y), 28, dim_color, -1, cv2.LINE_AA)
+
+
+def draw_info_panel(frame, pedestrian_count, overall_risk):
+    cv2.rectangle(frame, (10, 10), (390, 100), BLACK, -1)
+    cv2.rectangle(frame, (10, 10), (390, 100), WHITE, 2)
+
+    cv2.putText(frame, f"Pedestrians: {pedestrian_count}", (25, 45), FONT, 0.9, WHITE, 2)
+    cv2.putText(frame, f"Overall Risk: {RISK_NAMES[overall_risk]}", (25, 83),
+                FONT, 0.9, RISK_COLORS[overall_risk], 2)
+
+
+def main():
+    print("Loading model...")
+    model = YOLO(MODEL_PATH)
+    cap = cv2.VideoCapture(VIDEO_PATH)
+    if not cap.isOpened():
+        print(f"ERROR: Could not open video: {VIDEO_PATH}")
+        print("Please set VIDEO_PATH at the top of main.py to your video file.")
+        return
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    print("Running... press Q in the video window to quit.")
+    while True:
+        success, frame = cap.read()
+        if not success:
+            print("End of video.")
+            break
+        h, w = frame.shape[:2]
+        frame = cv2.resize(frame, (FRAME_WIDTH, int(h * FRAME_WIDTH / w)))
+        h, w = frame.shape[:2]
+        critical_polygon = make_polygon(CRITICAL_ZONE, w, h)
+        warning_polygon = make_polygon(WARNING_ZONE, w, h)
+        draw_zones(frame, critical_polygon, warning_polygon)
+        results = model.predict(
+            frame,
+            classes=[PERSON_CLASS_ID],
+            conf=CONFIDENCE_THRESHOLD,
+            verbose=False,
+        )
+
+        pedestrian_count = 0
+        overall_risk = LOW 
+
+        for box in results[0].boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            confidence = float(box.conf[0])
+            foot_point = ((x1 + x2) // 2, y2)
+            risk = get_risk_level(foot_point, critical_polygon, warning_polygon)
+            overall_risk = max(overall_risk, risk)
+            pedestrian_count += 1
+
+            draw_pedestrian(frame, (x1, y1, x2, y2), confidence, risk)
+        draw_traffic_light(frame, overall_risk)
+        draw_info_panel(frame, pedestrian_count, overall_risk)
+        cv2.imshow(WINDOW_NAME, frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key in (ord("q"), ord("Q")):
+            break
+        if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
