@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Angular / Node
+node_modules/
+dist/
+.angular/
+
+# VS Code
+.vscode/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Azure
+local.settings.json
+
+# Logs
+*.log
